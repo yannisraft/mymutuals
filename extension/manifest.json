@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MyMutuals",
-  "version": "0.1.0",
-  "description": "Locally filter people you follow on X who do not follow you back.",
+  "version": "0.2.1",
+  "description": "A smooth local view of people you follow who do not follow you back.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://x.com/*",

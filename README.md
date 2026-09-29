@@ -1,8 +1,6 @@
 # MyMutuals
 
-MyMutuals is a small Chrome extension that filters the Following list on your own X profile to show accounts that do not follow you back.
-
-It works locally in the page. It does not call X APIs, send account data to a server, or download your complete followers list. Instead, it checks the `Follows you` marker X renders in each currently loaded Following row and hides marked mutuals when the toggle is on.
+MyMutuals is a Chrome extension that adds a local Non-followers filter to X's existing Following list.
 
 ## Install for development
 
@@ -11,11 +9,14 @@ It works locally in the page. It does not call X APIs, send account data to a se
 3. Choose **Load unpacked** and select this project's `extension` folder.
 4. Open your own `x.com/<handle>/following` page and refresh it.
 
-The **Non-followers** toggle appears above the list. Its state is saved locally in Chrome extension storage.
+## How it works
 
-## Scope and limitations
+MyMutuals does not call X APIs, replay X requests, or create a second list. It observes only the Following rows X has already rendered and applies a small local toolbar plus a CSS filter to those same rows.
 
-- The toolbar appears only on the logged-in account's own Following page.
-- It filters the rows X has loaded into the page; scroll to load more accounts.
-- Classification depends on X rendering its `Follows you` indicator. This is not an independent full-list comparison.
-- The feature measures follow-back status only; it does not fetch profile timelines or activity data.
+X remains responsible for scrolling and loading its own list. MyMutuals does not prefetch, accumulate, or request accounts in the background.
+
+The **Non-followers** toggle uses X's rendered `Follows you` marker. No account data is sent to a server.
+
+## Limitation
+
+Because this version is DOM-only, it can only filter accounts that X has rendered at that moment. X's own virtualized list may re-render rows as you scroll.

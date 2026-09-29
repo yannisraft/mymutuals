@@ -3,23 +3,24 @@
 
   const STORAGE_KEY = 'nonFollowersEnabled';
   const TOOLBAR_ID = 'mymutuals-toolbar';
-  const MUTUAL_ATTR = 'data-mymutuals-mutual';
+  const ROW_SELECTOR = '[data-testid="UserCell"]';
   const FOLLOWING_PATH = /^\/([^/]+)\/following\/?$/i;
 
-  let enabled = false;
+  let enabled = true;
   let activePath = '';
+  let timelineRoot = null;
+  let observer = null;
   let refreshTimer = null;
 
-  function normalizedHandle(path) {
-    const match = path.match(FOLLOWING_PATH);
-    return match ? decodeURIComponent(match[1]).toLowerCase() : null;
+  console.info('[MyMutuals] loaded', window.location.href);
+
+  function isFollowingPage() {
+    return FOLLOWING_PATH.test(window.location.pathname);
   }
 
-  function ownHandle() {
-    const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"][href]');
-    if (!link) return null;
-    const match = link.getAttribute('href')?.match(/^\/([^/?#]+)\/?$/);
-    return match ? decodeURIComponent(match[1]).toLowerCase() : null;
+  function findTimelineRoot() {
+    return document.querySelector('[aria-label^="Timeline: Following"]')
+      || document.querySelector('[data-testid="primaryColumn"]');
   }
 
   function isMutual(cell) {
@@ -29,101 +30,97 @@
     );
   }
 
-  function followingCells() {
-    return document.querySelectorAll('[data-testid="UserCell"]');
+  function applyRowState() {
+    if (!timelineRoot || !document.contains(timelineRoot)) return;
+    for (const cell of timelineRoot.querySelectorAll(ROW_SELECTOR)) {
+      if (isMutual(cell)) cell.setAttribute('data-mymutuals-mutual', 'true');
+      else cell.removeAttribute('data-mymutuals-mutual');
+    }
+    updateStatus();
   }
 
-  function updateCells() {
-    let mutualCount = 0;
-    for (const cell of followingCells()) {
-      const mutual = isMutual(cell);
-      cell.setAttribute(MUTUAL_ATTR, String(mutual));
-      if (mutual) mutualCount += 1;
-    }
+  function scheduleApply() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(applyRowState, 80);
+  }
 
+  function updateStatus() {
     const status = document.querySelector(`#${TOOLBAR_ID} .mymutuals-status`);
-    if (status) {
-      const nextStatus = enabled
-        ? `${mutualCount} mutual${mutualCount === 1 ? '' : 's'} hidden`
-        : `${followingCells().length} accounts shown`;
-      if (status.textContent !== nextStatus) status.textContent = nextStatus;
-    }
-  }
-
-  function clearMarks() {
-    for (const cell of followingCells()) cell.removeAttribute(MUTUAL_ATTR);
-  }
-
-  function removeToolbar() {
-    document.getElementById(TOOLBAR_ID)?.remove();
-    clearMarks();
+    if (!status || !timelineRoot) return;
+    const rows = [...timelineRoot.querySelectorAll(ROW_SELECTOR)];
+    const mutuals = rows.filter((row) => row.getAttribute('data-mymutuals-mutual') === 'true').length;
+    status.textContent = `${enabled ? 'Filtering' : 'Showing all'} · ${mutuals} mutual visible`;
   }
 
   function mountToolbar() {
-    const column = document.querySelector('[data-testid="primaryColumn"], main[role="main"], main');
-    if (!column || document.getElementById(TOOLBAR_ID)) return;
-
-    const toolbar = document.createElement('section');
+    if (document.getElementById(TOOLBAR_ID) || !document.body) return;
+    const toolbar = document.createElement('aside');
     toolbar.id = TOOLBAR_ID;
-    toolbar.className = 'mymutuals-toolbar';
     toolbar.innerHTML = `
+      <strong class="mymutuals-title">MyMutuals</strong>
       <label class="mymutuals-control">
         <input type="checkbox" class="mymutuals-checkbox">
         <span class="mymutuals-switch" aria-hidden="true"></span>
-        <span class="mymutuals-label">Non-followers</span>
+        <span>Non-followers</span>
       </label>
       <span class="mymutuals-status" aria-live="polite"></span>
     `;
-
     const checkbox = toolbar.querySelector('.mymutuals-checkbox');
     checkbox.checked = enabled;
-    checkbox.addEventListener('change', () => {
-      enabled = checkbox.checked;
-      document.documentElement.classList.toggle('mymutuals-filter-active', enabled);
+    checkbox.addEventListener('change', (event) => {
+      enabled = event.target.checked;
       chrome.storage.local.set({ [STORAGE_KEY]: enabled });
-      updateCells();
+      document.documentElement.classList.toggle('mymutuals-filtering', enabled);
+      updateStatus();
     });
+    document.body.append(toolbar);
+  }
 
-    column.insertBefore(toolbar, column.firstElementChild);
-    document.documentElement.classList.toggle('mymutuals-filter-active', enabled);
-    updateCells();
+  function bindTimeline() {
+    const nextRoot = findTimelineRoot();
+    if (!nextRoot) return;
+    if (nextRoot !== timelineRoot) {
+      observer?.disconnect();
+      timelineRoot = nextRoot;
+      observer = new MutationObserver(scheduleApply);
+      observer.observe(timelineRoot, { childList: true, subtree: true });
+    }
+    applyRowState();
+  }
+
+  function unmount() {
+    observer?.disconnect();
+    observer = null;
+    timelineRoot = null;
+    document.getElementById(TOOLBAR_ID)?.remove();
+    document.documentElement.classList.remove('mymutuals-filtering');
   }
 
   function syncPage() {
-    const pageHandle = normalizedHandle(window.location.pathname);
-    const me = ownHandle();
-    const isOwnFollowingPage = !!pageHandle && !!me && pageHandle === me;
-
-    if (!isOwnFollowingPage) {
-      if (activePath) removeToolbar();
+    if (!isFollowingPage()) {
+      if (activePath) unmount();
       activePath = '';
-      document.documentElement.classList.remove('mymutuals-filter-active');
       return;
     }
-
     activePath = window.location.pathname;
     mountToolbar();
-    updateCells();
-  }
-
-  function scheduleSync() {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(syncPage, 150);
+    document.documentElement.classList.toggle('mymutuals-filtering', enabled);
+    bindTimeline();
   }
 
   chrome.storage.local.get([STORAGE_KEY], (stored) => {
-    enabled = stored[STORAGE_KEY] === true;
+    enabled = stored[STORAGE_KEY] !== false;
     syncPage();
   });
-
-  const observer = new MutationObserver(scheduleSync);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
 
   let lastUrl = location.href;
   setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      scheduleSync();
+      unmount();
+      syncPage();
+    } else if (isFollowingPage()) {
+      syncPage();
     }
-  }, 500);
+  }, 700);
 })();
